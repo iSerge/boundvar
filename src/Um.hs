@@ -1,10 +1,12 @@
 {-# LANGUAGE BinaryLiterals #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Um (compute, initUm, Memory, nullUm, opN, Platter, Program, regA, regB, regC, Um (..)) where
 
 import Control.Monad (unless, when)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.State as ST
+import qualified Data.Array.IO as A
 import Data.Bits (complement, shiftR, (.&.))
 import qualified Data.ByteString as B
 import qualified Data.Map as M
@@ -14,14 +16,20 @@ import System.IO (stdin, stdout)
 
 type Platter = Word32
 
-type Program = V.Vector Platter
+-- type Program = V.Vector Platter
+type Program = A.IOUArray Platter Platter
 
+-- instance Show (A.IOUArray Word32 Word32) where
+--   show = undefined
+--
 type Registers = V.Vector Platter
 
 type Memory = M.Map Platter Program
 
 data Um = Um {r :: Registers, mem :: Memory, finger :: Platter, opName :: String}
-  deriving (Eq, Show)
+  deriving (Eq)
+
+-- deriving (Eq, Show)
 
 type ComputeState = ST.StateT Um (E.ExceptT String IO)
 
@@ -31,11 +39,16 @@ nullUm = Um {r = V.replicate 8 0, finger = 0, mem = M.empty, opName = ""}
 initUm :: Program -> Um
 initUm d = nullUm {mem = M.singleton 0 d}
 
-getFinger :: ComputeState Int
-getFinger = ST.gets $ fromIntegral . finger
+getFinger :: ComputeState Platter
+getFinger = ST.gets finger
 
 advanceFinger :: ComputeState ()
 advanceFinger = ST.modify (\s -> s {finger = finger s + 1})
+
+progLen :: Program -> IO Platter
+progLen p = do
+  (begin, end) <- A.getBounds p
+  return (end - begin)
 
 getOp :: ComputeState Platter
 getOp = do
@@ -43,12 +56,13 @@ getOp = do
   s <- ST.get
   let m = mem s
   if M.member 0 m
-    then
-      if V.length (m M.! 0) <= f
+    then do
+      l <- ST.liftIO $ progLen (m M.! 0)
+      if l <= f
         then do
           n <- getOpName
           E.throwError $ "Finger aims outside 0 array in " ++ n
-        else return $ m M.! 0 V.! f
+        else ST.liftIO $ A.readArray (m M.! 0) f
     else do
       n <- getOpName
       E.throwError $ "0 array is absent in " ++ n
@@ -101,7 +115,8 @@ checkArrayBound a reg = do
   i <- getReg reg
   arr <- getReg a
   m <- getMem
-  unless (fromIntegral i < V.length (m M.! arr)) $ do
+  l <- ST.liftIO $ progLen (m M.! arr)
+  unless (i < l) $ do
     n <- getOpName
     E.throwError $ "Index " ++ show i ++ " is out of bounds of array in " ++ n
 
@@ -123,17 +138,23 @@ evalStep = do
     -- Array index
     1 -> do
       setOpName "Array index"
-      _ <- checkArray b
+      m <- checkArray b
       checkArrayBound b c
-      ST.modify $ arrayIndex a b c
+      -- ST.modify $ arrayIndex a b c
+      ofs <- getReg c
+      v <- ST.liftIO $ A.readArray m ofs
+      ST.modify $ \s -> s {r = r s V.// [(a, v)]}
       advanceFinger
       evalStep
     -- Array amendment
     2 -> do
       setOpName "Array amendment"
-      _ <- checkArray a
+      m <- checkArray a
       checkArrayBound a b
-      ST.modify $ arrayAmend a b c
+      -- ST.modify $ arrayAmend a b c
+      ofs <- getReg b
+      v <- getReg c
+      ST.liftIO $ A.writeArray m ofs v
       advanceFinger
       evalStep
     -- Addition
@@ -172,7 +193,12 @@ evalStep = do
     -- Allocation
     8 -> do
       setOpName "Allocation"
-      ST.modify $ allocate b c
+      -- ST.modify $ allocate b c
+      sz <- getReg c
+      memory <- ST.gets mem
+      arr <- if sz == 0 then ST.liftIO $ A.newArray (0, 0) 0 else ST.liftIO $ A.newArray (0, sz - 1) 0
+      let index = head $ dropWhile (`M.member` memory) [1 ..]
+      ST.modify $ \s -> s {r = r s V.// [(b, index)], mem = M.insert index arr memory}
       advanceFinger
       evalStep
     -- Abandonment
@@ -208,8 +234,13 @@ evalStep = do
     -- Load program
     12 -> do
       setOpName "Load program"
-      _ <- checkArray b
-      ST.modify $ loadProg b c
+      arr <- checkArray b
+      -- ST.modify $ loadProg b c
+      offs <- getReg c
+      bytes <- ST.liftIO $ A.getElems arr
+      bounds <- ST.liftIO $ A.getBounds arr
+      prog <- ST.liftIO $ A.newListArray bounds bytes
+      ST.modify $ \s -> s {finger = offs, mem = M.adjust (const prog) 0 $ mem s}
       evalStep
     -- Orthography
     13 -> do
@@ -224,6 +255,7 @@ evalStep = do
 condMove :: Int -> Int -> Int -> Um -> Um
 condMove a b c m = if 0 == r m V.! c then m else m {r = r m V.// [(a, r m V.! b)]}
 
+{-
 arrayIndex :: Int -> Int -> Int -> Um -> Um
 arrayIndex a b c m = m {r = r m V.// [(a, mem m M.! index V.! fromIntegral offset)]}
   where
@@ -237,6 +269,7 @@ arrayAmend a b c m = m {mem = M.adjust newVal index (mem m)}
     offset = r m V.! b
     value = r m V.! c
     newVal _ = mem m M.! index V.// [(fromIntegral offset, value)]
+-}
 
 add :: Int -> Int -> Int -> Um -> Um
 add a b c m = m {r = r m V.// [(a, value)]}
@@ -266,13 +299,13 @@ nand a b c m = m {r = r m V.// [(a, value)]}
     v2 = r m V.! c
     value = complement $ v1 .&. v2
 
-allocate :: Int -> Int -> Um -> Um
-allocate b c m = m {r = r m V.// [(b, index)], mem = M.insert index a memory}
-  where
-    count = fromIntegral $ r m V.! c
-    a = if count == 0 then V.empty else V.replicate count 0
-    memory = mem m
-    index = head $ dropWhile (`M.member` memory) [1 ..]
+-- allocate :: Int -> Int -> Um -> Um
+-- allocate b c m = m {r = r m V.// [(b, index)], mem = M.insert index a memory}
+--   where
+--     count = fromIntegral $ r m V.! c
+--     a = if count == 0 then V.empty else V.replicate count 0
+--     memory = mem m
+--     index = head $ dropWhile (`M.member` memory) [1 ..]
 
 abandon :: Int -> Um -> Um
 abandon c m = m {mem = M.delete index $ mem m}

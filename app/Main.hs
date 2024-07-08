@@ -1,5 +1,6 @@
 module Main (main) where
 
+import qualified Data.Array.IO as A
 import Data.Bits (shiftL)
 import qualified Data.ByteString as B
 import Data.List (intersperse)
@@ -7,8 +8,9 @@ import qualified Data.Vector as V
 import System.Environment (getArgs)
 import Um
 
-bytesToProgram :: B.ByteString -> Program
-bytesToProgram = V.fromList . toWord32
+bytesToProgram :: B.ByteString -> IO Program
+-- bytesToProgram = V.fromList . toWord32
+bytesToProgram s = A.newListArray (0, fromIntegral$B.length s - 1) (toWord32 s)
   where
     toWord32 bs | B.null bs = []
     toWord32 bs =
@@ -25,7 +27,8 @@ main = do
   putStrLn ""
   contents <- mapM (\f -> do putStr "Reading file: "; putStrLn f; B.readFile f) args
   putStrLn "-------------------"
-  result <- compute $ bytesToProgram $ B.concat contents
+  prog <- bytesToProgram $ B.concat contents
+  result <- compute prog
   case result of
     Left s -> do
       putStrLn ""

@@ -36,6 +36,7 @@ ghc-options:
 library:
   source-dirs: src
   dependencies:
+    - array
     - bytestring
     - containers
     - mtl
@@ -50,6 +51,7 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - array
     - boundvar
     - bytestring
     - mtl
