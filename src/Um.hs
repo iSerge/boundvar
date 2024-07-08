@@ -47,8 +47,8 @@ advanceFinger = ST.modify (\s -> s {finger = finger s + 1})
 
 progLen :: Program -> IO Platter
 progLen p = do
-  (begin, end) <- A.getBounds p
-  return (end - begin)
+  (_, end) <- A.getBounds p
+  return end
 
 getOp :: ComputeState Platter
 getOp = do
@@ -116,7 +116,7 @@ checkArrayBound a reg = do
   arr <- getReg a
   m <- getMem
   l <- ST.liftIO $ progLen (m M.! arr)
-  unless (i < l) $ do
+  unless (i <= l) $ do
     n <- getOpName
     E.throwError $ "Index " ++ show i ++ " is out of bounds of array in " ++ n
 
