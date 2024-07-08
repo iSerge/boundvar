@@ -2,7 +2,7 @@
 
 module Um (compute, initUm, Memory, nullUm, opN, Platter, Program, regA, regB, regC, Um (..)) where
 
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import qualified Control.Monad.Except as E
 import qualified Control.Monad.State as ST
 import Data.Bits (complement, shiftR, (.&.))
@@ -131,8 +131,8 @@ evalStep = do
     -- Array amendment
     2 -> do
       setOpName "Array amendment"
-      _ <- checkArray c
-      checkArrayBound c b
+      _ <- checkArray a
+      checkArrayBound a b
       ST.modify $ arrayAmend a b c
       advanceFinger
       evalStep
@@ -166,7 +166,9 @@ evalStep = do
       advanceFinger
       evalStep
     -- Halt
-    7 -> return "Evaluation halted"
+    7 -> do
+      setOpName "Halt"
+      return "Evaluation halted"
     -- Allocation
     8 -> do
       setOpName "Allocation"
@@ -177,9 +179,9 @@ evalStep = do
     9 -> do
       setOpName "Abandonment"
       i <- getReg c
-      unless (0 == i) $ do
+      when (0 == i) $ do
         n <- getOpName
-        E.throwError $ "Trying abandon 0 array in " ++ n
+        E.throwError $ "Trying abandon " ++ show i ++ " array in " ++ n
       _ <- checkArray c
       ST.modify $ abandon c
       advanceFinger
@@ -268,7 +270,7 @@ allocate :: Int -> Int -> Um -> Um
 allocate b c m = m {r = r m V.// [(b, index)], mem = M.insert index a memory}
   where
     count = fromIntegral $ r m V.! c
-    a = V.replicate count 0
+    a = if count == 0 then V.empty else V.replicate count 0
     memory = mem m
     index = head $ dropWhile (`M.member` memory) [1 ..]
 
