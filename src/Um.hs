@@ -12,7 +12,7 @@ import qualified Data.ByteString as B
 import qualified Data.Map as M
 import qualified Data.Vector as V
 import Data.Word (Word32, Word8)
-import System.IO (stdin, stdout)
+import System.IO (hFlush, stdin, stdout)
 
 type Platter = Word32
 
@@ -220,7 +220,9 @@ evalStep = do
         then do
           n <- getOpName
           E.throwError $ "Trying to output value > 255 in " ++ n
-        else ST.liftIO $ B.hPut stdout $ toByteString v
+        else do
+          ST.liftIO $ B.hPut stdout $ toByteString v
+          ST.liftIO $ hFlush stdout
       advanceFinger
       evalStep
     -- Input
@@ -234,13 +236,18 @@ evalStep = do
     -- Load program
     12 -> do
       setOpName "Load program"
-      arr <- checkArray b
       -- ST.modify $ loadProg b c
       offs <- getReg c
-      bytes <- ST.liftIO $ A.getElems arr
-      bounds <- ST.liftIO $ A.getBounds arr
-      prog <- ST.liftIO $ A.newListArray bounds bytes
-      ST.modify $ \s -> s {finger = offs, mem = M.adjust (const prog) 0 $ mem s}
+      n <- getReg b
+      if n == 0
+        then
+          ST.modify $ \s -> s {finger = offs}
+        else do
+          arr <- checkArray b
+          bytes <- ST.liftIO $ A.getElems arr
+          bounds <- ST.liftIO $ A.getBounds arr
+          prog <- ST.liftIO $ A.newListArray bounds bytes
+          ST.modify $ \s -> s {finger = offs, mem = M.adjust (const prog) 0 $ mem s}
       evalStep
     -- Orthography
     13 -> do
