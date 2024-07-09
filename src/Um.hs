@@ -16,12 +16,8 @@ import System.IO (hFlush, stdin, stdout)
 
 type Platter = Word32
 
--- type Program = V.Vector Platter
 type Program = A.IOUArray Platter Platter
 
--- instance Show (A.IOUArray Word32 Word32) where
---   show = undefined
---
 type Registers = V.Vector Platter
 
 type Memory = M.Map Platter Program
@@ -129,154 +125,61 @@ evalStep = do
   let b = regB op
   let c = regC op
   case opN op of
-    -- Conditional move
-    0 -> do
-      setOpName "Conditional move"
-      ST.modify $ condMove a b c
-      advanceFinger
-      evalStep
-    -- Array index
-    1 -> do
-      setOpName "Array index"
-      m <- checkArray b
-      checkArrayBound b c
-      -- ST.modify $ arrayIndex a b c
-      ofs <- getReg c
-      v <- ST.liftIO $ A.readArray m ofs
-      ST.modify $ \s -> s {r = r s V.// [(a, v)]}
-      advanceFinger
-      evalStep
-    -- Array amendment
-    2 -> do
-      setOpName "Array amendment"
-      m <- checkArray a
-      checkArrayBound a b
-      -- ST.modify $ arrayAmend a b c
-      ofs <- getReg b
-      v <- getReg c
-      ST.liftIO $ A.writeArray m ofs v
-      advanceFinger
-      evalStep
-    -- Addition
-    3 -> do
-      setOpName "Addition"
-      ST.modify $ add a b c
-      advanceFinger
-      evalStep
-    -- Multiplication
-    4 -> do
-      setOpName "Multiplication"
-      ST.modify $ mul a b c
-      advanceFinger
-      evalStep
-    -- Division
-    5 -> do
-      setOpName "Division"
-      divisor <- getReg c
-      if 0 == divisor
-        then do
-          n <- getOpName
-          E.throwError $ "Division by zero in " ++ n
-        else ST.modify $ divide a b c
-      advanceFinger
-      evalStep
-    -- Not-And
-    6 -> do
-      setOpName "Not-And"
-      ST.modify $ nand a b c
-      advanceFinger
-      evalStep
-    -- Halt
-    7 -> do
-      setOpName "Halt"
-      return "Evaluation halted"
-    -- Allocation
-    8 -> do
-      setOpName "Allocation"
-      -- ST.modify $ allocate b c
-      sz <- getReg c
-      memory <- ST.gets mem
-      arr <- if sz == 0 then ST.liftIO $ A.newArray (0, 0) 0 else ST.liftIO $ A.newArray (0, sz - 1) 0
-      let index = head $ dropWhile (`M.member` memory) [1 ..]
-      ST.modify $ \s -> s {r = r s V.// [(b, index)], mem = M.insert index arr memory}
-      advanceFinger
-      evalStep
-    -- Abandonment
-    9 -> do
-      setOpName "Abandonment"
-      i <- getReg c
-      when (0 == i) $ do
-        n <- getOpName
-        E.throwError $ "Trying abandon " ++ show i ++ " array in " ++ n
-      _ <- checkArray c
-      ST.modify $ abandon c
-      advanceFinger
-      evalStep
-    -- Output
-    10 -> do
-      setOpName "Output"
-      v <- getReg c
-      if v > 255
-        then do
-          n <- getOpName
-          E.throwError $ "Trying to output value > 255 in " ++ n
-        else do
-          ST.liftIO $ B.hPut stdout $ toByteString v
-          ST.liftIO $ hFlush stdout
-      advanceFinger
-      evalStep
-    -- Input
-    11 -> do
-      setOpName "Input"
-      char <- ST.liftIO $ B.hGet stdin 1
-      let v = if B.null char then complement (0 :: Platter) else fromIntegral $ B.head char
-      ST.modify $ \s -> s {r = r s V.// [(c, v)]}
-      advanceFinger
-      evalStep
-    -- Load program
-    12 -> do
-      setOpName "Load program"
-      -- ST.modify $ loadProg b c
-      offs <- getReg c
-      n <- getReg b
-      if n == 0
-        then
-          ST.modify $ \s -> s {finger = offs}
-        else do
-          arr <- checkArray b
-          bytes <- ST.liftIO $ A.getElems arr
-          bounds <- ST.liftIO $ A.getBounds arr
-          prog <- ST.liftIO $ A.newListArray bounds bytes
-          ST.modify $ \s -> s {finger = offs, mem = M.adjust (const prog) 0 $ mem s}
-      evalStep
-    -- Orthography
-    13 -> do
-      setOpName "Orthography"
-      let reg = fromIntegral $ 0b111 .&. (op `shiftR` 25)
-      let v = 0x01FFFFFF .&. op
-      ST.modify $ orthography reg v
-      advanceFinger
-      evalStep
+    0 -> conditionalMove a b c
+    1 -> arrayIndex a b c
+    2 -> amendment a b c
+    3 -> addition a b c
+    4 -> multiplication a b c
+    5 -> division a b c
+    6 -> notAnd a b c
+    7 -> halt
+    8 -> allocation b c
+    9 -> abandonment c
+    10 -> output c
+    11 -> input c
+    12 -> loadProg b c
+    13 -> orthography op
     _ -> E.throwError $ "Failure: Invalid operation: " ++ show op
+
+conditionalMove :: Int -> Int -> Int -> ComputeState String
+conditionalMove a b c = do
+  setOpName "Conditional move"
+  ST.modify $ condMove a b c
+  advanceFinger
+  evalStep
 
 condMove :: Int -> Int -> Int -> Um -> Um
 condMove a b c m = if 0 == r m V.! c then m else m {r = r m V.// [(a, r m V.! b)]}
 
-{-
-arrayIndex :: Int -> Int -> Int -> Um -> Um
-arrayIndex a b c m = m {r = r m V.// [(a, mem m M.! index V.! fromIntegral offset)]}
-  where
-    index = r m V.! b
-    offset = r m V.! c
+arrayIndex :: Int -> Int -> Int -> ComputeState String
+arrayIndex a b c = do
+  setOpName "Array index"
+  m <- checkArray b
+  checkArrayBound b c
+  -- ST.modify $ arrayIndex a b c
+  ofs <- getReg c
+  v <- ST.liftIO $ A.readArray m ofs
+  ST.modify $ \s -> s {r = r s V.// [(a, v)]}
+  advanceFinger
+  evalStep
 
-arrayAmend :: Int -> Int -> Int -> Um -> Um
-arrayAmend a b c m = m {mem = M.adjust newVal index (mem m)}
-  where
-    index = r m V.! a
-    offset = r m V.! b
-    value = r m V.! c
-    newVal _ = mem m M.! index V.// [(fromIntegral offset, value)]
--}
+amendment :: Int -> Int -> Int -> ComputeState String
+amendment a b c = do
+  setOpName "Array amendment"
+  m <- checkArray a
+  checkArrayBound a b
+  ofs <- getReg b
+  v <- getReg c
+  ST.liftIO $ A.writeArray m ofs v
+  advanceFinger
+  evalStep
+
+addition :: Int -> Int -> Int -> ComputeState String
+addition a b c = do
+  setOpName "Addition"
+  ST.modify $ add a b c
+  advanceFinger
+  evalStep
 
 add :: Int -> Int -> Int -> Um -> Um
 add a b c m = m {r = r m V.// [(a, value)]}
@@ -285,12 +188,31 @@ add a b c m = m {r = r m V.// [(a, value)]}
     v2 = r m V.! c
     value = v1 + v2
 
+multiplication :: Int -> Int -> Int -> ComputeState String
+multiplication a b c = do
+  setOpName "Multiplication"
+  ST.modify $ mul a b c
+  advanceFinger
+  evalStep
+
 mul :: Int -> Int -> Int -> Um -> Um
 mul a b c m = m {r = r m V.// [(a, value)]}
   where
     v1 = r m V.! b
     v2 = r m V.! c
     value = v1 * v2
+
+division :: Int -> Int -> Int -> ComputeState String
+division a b c = do
+  setOpName "Division"
+  divisor <- getReg c
+  if 0 == divisor
+    then do
+      n <- getOpName
+      E.throwError $ "Division by zero in " ++ n
+    else ST.modify $ divide a b c
+  advanceFinger
+  evalStep
 
 divide :: Int -> Int -> Int -> Um -> Um
 divide a b c m = m {r = r m V.// [(a, value)]}
@@ -299,6 +221,13 @@ divide a b c m = m {r = r m V.// [(a, value)]}
     v2 = r m V.! c
     value = v1 `div` v2
 
+notAnd :: Int -> Int -> Int -> ComputeState String
+notAnd a b c = do
+  setOpName "Not-And"
+  ST.modify $ nand a b c
+  advanceFinger
+  evalStep
+
 nand :: Int -> Int -> Int -> Um -> Um
 nand a b c m = m {r = r m V.// [(a, value)]}
   where
@@ -306,24 +235,77 @@ nand a b c m = m {r = r m V.// [(a, value)]}
     v2 = r m V.! c
     value = complement $ v1 .&. v2
 
--- allocate :: Int -> Int -> Um -> Um
--- allocate b c m = m {r = r m V.// [(b, index)], mem = M.insert index a memory}
---   where
---     count = fromIntegral $ r m V.! c
---     a = if count == 0 then V.empty else V.replicate count 0
---     memory = mem m
---     index = head $ dropWhile (`M.member` memory) [1 ..]
+halt :: ComputeState String
+halt = do
+  setOpName "Halt"
+  return "Evaluation halted"
 
-abandon :: Int -> Um -> Um
-abandon c m = m {mem = M.delete index $ mem m}
-  where
-    index = r m V.! c
+allocation :: Int -> Int -> ComputeState String
+allocation b c = do
+  setOpName "Allocation"
+  sz <- getReg c
+  memory <- ST.gets mem
+  arr <- if sz == 0 then ST.liftIO $ A.newArray (0, 0) 0 else ST.liftIO $ A.newArray (0, sz - 1) 0
+  let index = head $ dropWhile (`M.member` memory) [1 ..]
+  ST.modify $ \s -> s {r = r s V.// [(b, index)], mem = M.insert index arr memory}
+  advanceFinger
+  evalStep
 
-loadProg :: Int -> Int -> Um -> Um
-loadProg b c m = m {finger = r m V.! c, mem = M.adjust copy 0 $ mem m}
-  where
-    index = r m V.! b
-    copy _ = mem m M.! index
+abandonment :: Int -> ComputeState String
+abandonment c = do
+  setOpName "Abandonment"
+  i <- getReg c
+  when (0 == i) $ do
+    n <- getOpName
+    E.throwError $ "Trying abandon " ++ show i ++ " array in " ++ n
+  _ <- checkArray c
+  ST.modify $ \m -> m {mem = M.delete (r m V.! c) $ mem m}
+  advanceFinger
+  evalStep
 
-orthography :: Int -> Platter -> Um -> Um
-orthography a v m = m {r = r m V.// [(a, v)]}
+output :: Int -> ComputeState String
+output c = do
+  setOpName "Output"
+  v <- getReg c
+  if v > 255
+    then do
+      n <- getOpName
+      E.throwError $ "Trying to output value > 255 in " ++ n
+    else do
+      ST.liftIO $ B.hPut stdout $ toByteString v
+      ST.liftIO $ hFlush stdout
+  advanceFinger
+  evalStep
+
+input :: Int -> ComputeState String
+input c = do
+  setOpName "Input"
+  char <- ST.liftIO $ B.hGet stdin 1
+  let v = if B.null char then complement (0 :: Platter) else fromIntegral $ B.head char
+  ST.modify $ \s -> s {r = r s V.// [(c, v)]}
+  advanceFinger
+  evalStep
+
+loadProg :: Int -> Int -> ComputeState String
+loadProg b c = do
+  setOpName "Load program"
+  offs <- getReg c
+  n <- getReg b
+  if n == 0
+    then ST.modify $ \s -> s {finger = offs}
+    else do
+      arr <- checkArray b
+      bytes <- ST.liftIO $ A.getElems arr
+      bounds <- ST.liftIO $ A.getBounds arr
+      prog <- ST.liftIO $ A.newListArray bounds bytes
+      ST.modify $ \s -> s {finger = offs, mem = M.adjust (const prog) 0 $ mem s}
+  evalStep
+
+orthography :: Platter -> ComputeState String
+orthography op = do
+  setOpName "Orthography"
+  let reg = fromIntegral $ 0b111 .&. (op `shiftR` 25)
+  let v = 0x01FFFFFF .&. op
+  ST.modify $ \m -> m {r = r m V.// [(reg, v)]}
+  advanceFinger
+  evalStep
