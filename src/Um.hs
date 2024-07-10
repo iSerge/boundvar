@@ -1,5 +1,6 @@
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE Strict #-}
 
 module Um (compute, initUm, Memory, nullUm, opN, Platter, Program, regA, regB, regC, Um (..)) where
 
@@ -22,7 +23,7 @@ type Registers = V.Vector Platter
 
 type Memory = M.Map Platter Program
 
-data Um = Um {r :: Registers, mem :: Memory, finger :: Platter, opName :: String}
+data Um = Um {r :: Registers, mem :: Memory, finger :: Platter, opName :: String, freeIndex :: Platter}
   deriving (Eq)
 
 -- deriving (Eq, Show)
@@ -30,7 +31,7 @@ data Um = Um {r :: Registers, mem :: Memory, finger :: Platter, opName :: String
 type ComputeState = ST.StateT Um (E.ExceptT String IO)
 
 nullUm :: Um
-nullUm = Um {r = V.replicate 8 0, finger = 0, mem = M.empty, opName = ""}
+nullUm = Um {r = V.replicate 8 0, finger = 0, mem = M.empty, opName = "", freeIndex = 1}
 
 initUm :: Program -> Um
 initUm d = nullUm {mem = M.singleton 0 d}
@@ -246,10 +247,16 @@ allocation b c = do
   sz <- getReg c
   memory <- ST.gets mem
   arr <- if sz == 0 then ST.liftIO $ A.newArray (0, 0) 0 else ST.liftIO $ A.newArray (0, sz - 1) 0
-  let index = head $ dropWhile (`M.member` memory) [1 ..]
+  index <- getFreeIndex
   ST.modify $ \s -> s {r = r s V.// [(b, index)], mem = M.insert index arr memory}
   advanceFinger
   evalStep
+
+getFreeIndex :: ComputeState Platter
+getFreeIndex = do
+  i <- ST.gets freeIndex
+  ST.modify $ \s -> s {freeIndex = i + 1}
+  return i
 
 abandonment :: Int -> ComputeState String
 abandonment c = do
