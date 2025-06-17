@@ -2,4 +2,7 @@
 *~
 src/Secret.hs
 build
-
+boundvar.vcxproj.*
+.vs/
+boundvar/
+x64/
