@@ -6,4 +6,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_executable(um)
 target_sources(um PRIVATE src/um.cpp)
-target_compile_features(um PUBLIC cxx_std_17)
+set_property(TARGET um PROPERTY CXX_STANDARD 17)
