@@ -151,9 +151,9 @@ void free_machine(Um *machine)
     for (size_t i = 0; i < machine->mem.capacity; ++i)
     {
         free_array(&(machine->mem.arr[i]));
-        free_stack(machine->mem.free_indexes);
     }
 
+    free_stack(machine->mem.free_indexes);
     free(machine);
 }
 
@@ -230,6 +230,8 @@ void division(Um *um, Platter op)
     size_t a = reg_a(op);
     size_t b = reg_b(op);
     size_t c = reg_c(op);
+
+    assert(0 != um->reg[c] && "Division by zero");
 
     um->reg[a] = um->reg[b] / um->reg[c];
 

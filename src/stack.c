@@ -23,19 +23,13 @@ uint32_t pop(Stack stack)
 void push(Stack stack, uint32_t data)
 {
     assert(nullptr != stack);
-    if (is_empty(stack))
-    {
-        assert(nullptr != stack->next);
-    }
-    else
-    {
-        StNode *node = malloc(sizeof(StNode));
-        assert(nullptr != node);
 
-        node->data = data;
-        node->next = stack->next;
-        stack->next = node;
-    }
+    StNode *node = malloc(sizeof(StNode));
+    assert(nullptr != node);
+
+    node->data = data;
+    node->next = stack->next;
+    stack->next = node;
 }
 
 bool is_empty(Stack stack) { return nullptr == stack || nullptr == stack->next; }
