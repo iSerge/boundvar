@@ -167,7 +167,7 @@ void conditional_move(Um *um, Platter op)
     size_t b = reg_b(op);
     size_t c = reg_c(op);
 
-    if (0 == um->reg[c])
+    if (0 != um->reg[c])
     {
         um->reg[a] = um->reg[b];
     }
@@ -184,7 +184,7 @@ void array_index(Um *um, Platter op)
     assert(nullptr != um->mem.arr[um->reg[b]] && "Attempt to index nonexistent array");
     assert(um->reg[c] < um->mem.arr[um->reg[b]]->len && "Attempt to index outside array capacity");
 
-    um->reg[a] = um->mem.arr[um->reg[b]]->data[c];
+    um->reg[a] = um->mem.arr[um->reg[b]]->data[um->reg[c]];
 
     ++um->finger;
 }
@@ -198,7 +198,7 @@ void array_amendment(Um *um, Platter op)
     assert(nullptr != um->mem.arr[um->reg[a]] && "Attempt to amend nonexistent array");
     assert(um->reg[b] < um->mem.arr[um->reg[a]]->len && "Attempt to amend outside array capacity");
 
-    um->mem.arr[um->reg[a]]->data[b] = um->reg[c];
+    um->mem.arr[um->reg[a]]->data[um->reg[b]] = um->reg[c];
 
     ++um->finger;
 }
@@ -255,7 +255,7 @@ void allocation(Um *um, Platter op)
     size_t c = reg_c(op);
 
     Platter idx;
-    if (is_empty(um->mem.free_indexes))
+    if (!is_empty(um->mem.free_indexes))
     {
         idx = pop(um->mem.free_indexes);
     }
@@ -267,9 +267,20 @@ void allocation(Um *um, Platter op)
     if (idx >= um->mem.capacity)
     {
         size_t sz = um->mem.capacity + cap_increase;
-        Array **arr = realloc(um->mem.arr, sz);
+        /*
+        Array **arr = realloc(um->mem.arr, sz * sizeof(Array*));
 
         assert(nullptr != arr && "Failure to reallocate arrays");
+        */
+
+        Array **arr = malloc(sz * sizeof(Array*));
+
+        assert(nullptr != arr && "Failure to reallocate arrays");
+
+        for (size_t i = 0; i < um->mem.capacity; ++i)
+        {
+            arr[i] = um->mem.arr[i];
+        }
 
         um->mem.arr = arr;
 
