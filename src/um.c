@@ -82,6 +82,7 @@ void free_array(Array **arr)
         if (0 == (*arr)->refcount && 0 != (*arr)->len)
         {
             free((*arr)->data);
+            free(*arr);
         }
     }
 
