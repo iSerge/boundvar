@@ -22,7 +22,7 @@ fn main() {
                         | u32::from(buf[1]) << 16
                         | u32::from(buf[2]) << 8
                         | u32::from(buf[3]);
-                    prog.insert(prog.len(), v);
+                    prog.push(v);
                     //println!("Read instruction: {v:08x}");
                 } else {
                     break;
@@ -40,9 +40,10 @@ fn main() {
             println!("{msg}");
             break;
         }
-        // else {
-        //     let Ok(msg) = r else { panic!() };
-        //     println!("{msg}");
-        // }
+
+        #[cfg(feature = "detailed-reports")]
+        if let Ok(msg) = r {
+            println!("{msg}");
+        }
     }
 }

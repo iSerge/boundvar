@@ -3,4 +3,12 @@ name = "rum"
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+debug = "line-tables-only"
+
+[features]
+default = ["stacked-arrays"]
+stacked-arrays = []
+detailed-reports = []
+
 [dependencies]
